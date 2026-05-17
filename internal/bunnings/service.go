@@ -29,7 +29,7 @@ func New(cfg config.Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	client, err := gobunnings.New(cfg.BunningsEnv, ts, gobunnings.WithUserAgent("GoBunningsNinja/0.1"))
+	client, err := gobunnings.New(cfg.BunningsEnv, ts, gobunnings.WithUserAgent("GoBunningsNinja/v0.3"))
 	if err != nil {
 		return nil, err
 	}

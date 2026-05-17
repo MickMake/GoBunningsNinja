@@ -1,17 +1,18 @@
 # GoBunningsNinja
 
-Version: `0.1`
+`GoBunningsNinja` is a small CLI client that connects the local `GoBunnings` and `GoInvoiceNinja` packages.
 
-`GoBunningsNinja` is a small CLI/client that bridges:
+Version: `v0.3`
 
-- `GoBunnings` for Bunnings product lookup, search, and pricing.
-- `GoInvoiceNinja` for Invoice Ninja product/client maintenance.
+The goal is deliberately modest: refresh Invoice Ninja products from Bunnings product data, add selected Bunnings products safely, and export/import selected Invoice Ninja CSV data without turning the accounts into a surprised octopus.
 
-It is intentionally a thin orchestration layer. The API packages stay reusable and independent, which prevents the software equivalent of storing screws, nails, and one mysterious Allen key in the same labelled jar.
+## Requirements
 
-## Packaging note
+- Go `1.22`
+- Local checkout of `GoBunnings`
+- Local checkout of `GoInvoiceNinja` v0.2 or later
 
-This zip does **not** include `GoBunnings` or `GoInvoiceNinja`. It expects those packages to exist on your filesystem and uses `replace` directives in `go.mod`:
+`go.mod` expects these local paths:
 
 ```go
 replace github.com/MickMake/GoBunnings => /Volumes/home/mick/Documents/GoLang/Tradie/GoBunnings
@@ -21,201 +22,178 @@ replace github.com/MickMake/GoInvoiceNinja => /Volumes/home/mick/Documents/GoLan
 ## Build
 
 ```bash
-go test ./...
 go build ./cmd/bunnings-ninja
-```
-
-The module is set to:
-
-```go
-go 1.22
 ```
 
 ## Configuration
 
-Configuration can come from environment variables and/or a config file.
+Configuration is loaded from environment variables first, then from a config file. Config file values override environment variables.
 
-Config precedence:
+Config lookup order:
 
-1. defaults;
-2. environment variables;
-3. config file values.
+1. `--config <path>`
+2. `GOBUNNINGSNINJA_CONFIG`
+3. `./gobunningsninja.conf`, if present
 
-That means the config file overrides environment variables.
-
-Use a config file explicitly:
+Example:
 
 ```bash
-bunnings-ninja --config ./gobunningsninja.conf sync
+bunnings-ninja --config ./gobunningsninja.conf ninja export products products.csv
 ```
 
-Or set:
+Required for Invoice Ninja commands:
 
-```bash
-export GOBUNNINGSNINJA_CONFIG="/path/to/gobunningsninja.conf"
+```text
+INVOICE_NINJA_TOKEN
 ```
 
-If neither is set, the CLI will use `./gobunningsninja.conf` if present.
+Also required for Bunnings sync/search commands:
+
+```text
+BUNNINGS_CLIENT_ID
+BUNNINGS_CLIENT_SECRET
+```
+
+Useful optional settings:
+
+```text
+INVOICE_NINJA_URL
+BUNNINGS_ENV
+BUNNINGS_COUNTRY
+BUNNINGS_LOCATION
+BUNNINGS_SCOPES
+PRODUCT_PREFIX
+BUNNINGS_IN_CUSTOM_FIELD
+BUNNINGS_IMAGE_CUSTOM_FIELD
+TAX_NAME
+TAX_RATE
+```
 
 See `gobunningsninja.conf.example`.
 
-### Required for `ninja-*` CSV commands
-
-```bash
-INVOICE_NINJA_TOKEN=...
-```
-
-### Also required for Bunnings sync/search commands
-
-```bash
-BUNNINGS_CLIENT_ID=...
-BUNNINGS_CLIENT_SECRET=...
-```
-
-### Useful optional values
-
-```bash
-INVOICE_NINJA_URL=https://your.invoice-ninja.example
-BUNNINGS_ENV=live
-BUNNINGS_COUNTRY=AU
-BUNNINGS_LOCATION=1234
-BUNNINGS_SCOPES="scope1 scope2"
-PRODUCT_PREFIX=BUNNINGS-
-BUNNINGS_IN_CUSTOM_FIELD=1
-BUNNINGS_IMAGE_CUSTOM_FIELD=2
-TAX_NAME=GST
-TAX_RATE=10
-```
-
 ## Commands
 
-### Version
-
-```bash
-bunnings-ninja version
-```
-
-### Refresh linked Invoice Ninja products
-
-Dry-run preview:
+### Sync existing Invoice Ninja products
 
 ```bash
 bunnings-ninja sync
-```
-
-Apply updates:
-
-```bash
 bunnings-ninja sync --dry-run=false
 ```
 
-Existing products are linked by:
-
-1. configured Bunnings IN custom field, default `custom_value1`; or
-2. an inferred number in the product key, such as `BUNNINGS-0123456`.
-
-### Add or refresh one product by Bunnings IN
+### Add or refresh by Bunnings IN
 
 ```bash
 bunnings-ninja add-in 0123456
 bunnings-ninja add-in --dry-run=false 0123456
 ```
 
-### Search Bunnings
+### Search Bunnings products safely
 
-Preview:
+Preview only:
 
 ```bash
-bunnings-ninja search "merbau decking" --limit=10
+bunnings-ninja search "merbau decking"
 ```
 
-Create/update selected products:
+Import selected results:
 
 ```bash
 bunnings-ninja search "merbau decking" --create --select=0123456,0987654 --dry-run=false
 ```
 
-Create/update all returned results, explicitly confirmed:
+Bulk importing all returned search results requires `--all --yes` and remains hard-capped by the search limit.
+
+## Invoice Ninja CSV commands
+
+The grouped command format is:
 
 ```bash
-bunnings-ninja search "deck screws" --create --all --yes --limit=5 --dry-run=false
+bunnings-ninja ninja export <target> <file|->
+bunnings-ninja ninja import <target> <file|->
 ```
 
-## CSV commands
-
-The `ninja-*` commands only talk to Invoice Ninja.
-
-### Export products
+Exports use a positional destination:
 
 ```bash
-bunnings-ninja ninja-products-export --out products.csv
+bunnings-ninja ninja export products products.csv
+bunnings-ninja ninja export products -
 ```
 
-Columns:
+Exports do not overwrite files unless `--force` is used:
+
+```bash
+bunnings-ninja ninja export products products.csv --force
+```
+
+Imports use a positional source:
+
+```bash
+bunnings-ninja ninja import products products.csv
+cat products.csv | bunnings-ninja ninja import products -
+```
+
+Imports default to dry-run:
+
+```bash
+bunnings-ninja ninja import products products.csv
+bunnings-ninja ninja import products products.csv --dry-run=false
+```
+
+Available export targets:
 
 ```text
-ID,Product,Description,Price,Default Quantity,Max Quantity,Image URL
+products
+clients
+quotes
+invoices
+payments
 ```
 
-Notes:
-
-- `Product` maps to `product_key`.
-- `Description` maps to `notes`.
-- `Default Quantity` maps to `quantity`.
-- `Image URL` maps to the configured image custom field, default `custom_value2`.
-- `Max Quantity` is currently exported blank and ignored on import because the uploaded `GoInvoiceNinja` package does not expose a max quantity field.
-
-### Import products
-
-Dry-run preview:
-
-```bash
-bunnings-ninja ninja-products-import products.csv
-```
-
-Apply changes:
-
-```bash
-bunnings-ninja ninja-products-import --dry-run=false products.csv
-```
-
-### Export clients
-
-```bash
-bunnings-ninja ninja-clients-export --out clients.csv
-```
-
-Columns:
+Available import targets:
 
 ```text
-ID,Name,Address,Contact 1 First Name,Contact 1 Last Name,Contact 1 Email,Contact 1 Phone,...
+products
+clients
 ```
 
-The number of contact column groups expands to fit the largest number of contacts found on any exported client.
+Quote, invoice, and payment commands are export-only.
 
-### Import clients
+## CSV columns
 
-Dry-run preview:
+### Products
 
-```bash
-bunnings-ninja ninja-clients-import clients.csv
+```text
+ID, Product, Description, Price, Default Quantity, Max Quantity, Image URL
 ```
 
-Apply changes:
+`Max Quantity` is currently exported blank and ignored on import until the upstream `GoInvoiceNinja` package confirms or exposes a matching Invoice Ninja API field.
 
-```bash
-bunnings-ninja ninja-clients-import --dry-run=false clients.csv
+### Clients
+
+```text
+ID, Name, Address, Contact 1 First Name, Contact 1 Last Name, Contact 1 Email, Contact 1 Phone, ...
 ```
 
-Address note: Invoice Ninja stores billing addresses in structured fields. This version exports one combined `Address` column. If changed on import, the value is written to `address1` while preserving the other structured fields where possible.
+The client export creates as many repeated contact column groups as needed for the current data.
 
-## Import guardrails
+### Quotes
 
-Search import is intentionally conservative:
+```text
+ID, Number, Client ID, Client Name, Status, Date, Valid Until, Subtotal, Discount, Tax, Total, Balance, Public Notes, Private Notes
+```
 
-- `search` is preview-only by default.
-- `--create` still requires `--select=IN1,IN2` or `--all --yes`.
-- `--limit` is hard-capped by the Bunnings service.
-- `--dry-run` defaults to `true`.
+### Invoices
 
-That means a broad search cannot quietly create a thousand Invoice Ninja products while everyone involved is making tea.
+```text
+ID, Number, Client ID, Client Name, Status, Date, Due Date, Subtotal, Discount, Tax, Total, Balance, Paid To Date, Public Notes, Private Notes
+```
+
+### Payments
+
+```text
+ID, Client ID, Client Name, Invoice ID, Invoice Number, Date, Amount, Applied, Refunded, Transaction Reference, Payment Type, Status, Private Notes
+```
+
+## Notes
+
+For complete Invoice Ninja exports, this version uses `GoInvoiceNinja` v0.2 `ListAll` helpers rather than single-page `List` calls.

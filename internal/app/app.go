@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,7 +16,7 @@ import (
 	"github.com/MickMake/GoBunningsNinja/internal/syncer"
 )
 
-const version = "0.1"
+const version = "v0.3"
 
 type App struct {
 	Out io.Writer
@@ -80,7 +81,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		case "search":
 			return a.runSearch(ctx, svc, args[1:])
 		}
-	case "ninja-products-export", "ninja-products-import", "ninja-clients-export", "ninja-clients-import":
+	case "ninja":
 		if err := cfg.ValidateInvoiceNinja(); err != nil {
 			fmt.Fprintln(a.Err, "config error:", err)
 			return 2
@@ -90,16 +91,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 			fmt.Fprintln(a.Err, "invoice ninja client error:", err)
 			return 2
 		}
-		switch args[0] {
-		case "ninja-products-export":
-			return a.runNinjaProductsExport(ctx, nj, args[1:])
-		case "ninja-products-import":
-			return a.runNinjaProductsImport(ctx, nj, args[1:])
-		case "ninja-clients-export":
-			return a.runNinjaClientsExport(ctx, nj, args[1:])
-		case "ninja-clients-import":
-			return a.runNinjaClientsImport(ctx, nj, args[1:])
-		}
+		return a.runNinja(ctx, nj, args[1:])
+	case "ninja-products-export", "ninja-products-import", "ninja-clients-export", "ninja-clients-import":
+		fmt.Fprintln(a.Err, "this command form has been replaced; use `bunnings-ninja ninja export ...` or `bunnings-ninja ninja import ...`")
+		return 2
 	default:
 		fmt.Fprintln(a.Err, "unknown command:", args[0])
 		a.usage()
@@ -204,44 +199,95 @@ func (a App) runSearch(ctx context.Context, svc syncer.Service, args []string) i
 	return exitCode(results)
 }
 
-func (a App) runNinjaProductsExport(ctx context.Context, svc *ninja.Service, args []string) int {
-	fs := flag.NewFlagSet("ninja-products-export", flag.ContinueOnError)
-	fs.SetOutput(a.Err)
-	outPath := fs.String("out", "-", "output CSV path; use - for stdout")
-	if err := fs.Parse(args); err != nil {
+func (a App) runNinja(ctx context.Context, svc *ninja.Service, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(a.Err, "usage: bunnings-ninja ninja <export|import> ...")
 		return 2
 	}
-	w, closeFn, err := writerFor(*outPath, a.Out)
+	switch args[0] {
+	case "export":
+		return a.runNinjaExport(ctx, svc, args[1:])
+	case "import":
+		return a.runNinjaImport(ctx, svc, args[1:])
+	default:
+		fmt.Fprintln(a.Err, "unknown ninja subcommand:", args[0])
+		fmt.Fprintln(a.Err, "usage: bunnings-ninja ninja <export|import> ...")
+		return 2
+	}
+}
+
+func (a App) runNinjaExport(ctx context.Context, svc *ninja.Service, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(a.Err, "usage: bunnings-ninja ninja export <products|clients|quotes|invoices|payments> <file|-> [--force]")
+		return 2
+	}
+	kind := args[0]
+	outPath, force, err := parseExportArgs(args[1:])
+	if err != nil {
+		fmt.Fprintln(a.Err, err)
+		fmt.Fprintf(a.Err, "usage: bunnings-ninja ninja export %s <file|-> [--force]\n", kind)
+		return 2
+	}
+	w, closeFn, err := writerFor(outPath, a.Out, force)
 	if err != nil {
 		fmt.Fprintln(a.Err, "output error:", err)
 		return 1
 	}
 	defer closeFn()
-	if err := svc.ExportProductsCSV(ctx, w); err != nil {
-		fmt.Fprintln(a.Err, "export error:", err)
+	var exportErr error
+	switch kind {
+	case "products":
+		exportErr = svc.ExportProductsCSV(ctx, w)
+	case "clients":
+		exportErr = svc.ExportClientsCSV(ctx, w)
+	case "quotes":
+		exportErr = svc.ExportQuotesCSV(ctx, w)
+	case "invoices":
+		exportErr = svc.ExportInvoicesCSV(ctx, w)
+	case "payments":
+		exportErr = svc.ExportPaymentsCSV(ctx, w)
+	default:
+		fmt.Fprintln(a.Err, "unknown export target:", kind)
+		return 2
+	}
+	if exportErr != nil {
+		fmt.Fprintln(a.Err, "export error:", exportErr)
 		return 1
 	}
 	return 0
 }
 
-func (a App) runNinjaProductsImport(ctx context.Context, svc *ninja.Service, args []string) int {
-	fs := flag.NewFlagSet("ninja-products-import", flag.ContinueOnError)
-	fs.SetOutput(a.Err)
-	dryRun := fs.Bool("dry-run", true, "preview changes without updating Invoice Ninja")
-	if err := fs.Parse(args); err != nil {
+func (a App) runNinjaImport(ctx context.Context, svc *ninja.Service, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(a.Err, "usage: bunnings-ninja ninja import <products|clients> <file|-> [--dry-run=false]")
 		return 2
 	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(a.Err, "usage: bunnings-ninja ninja-products-import [--dry-run=false] <products.csv|->")
+	kind := args[0]
+	inPath, dryRun, err := parseImportArgs(args[1:])
+	if err != nil {
+		fmt.Fprintln(a.Err, err)
+		fmt.Fprintf(a.Err, "usage: bunnings-ninja ninja import %s <file|-> [--dry-run=false]\n", kind)
 		return 2
 	}
-	r, closeFn, err := readerFor(fs.Arg(0), os.Stdin)
+	r, closeFn, err := readerFor(inPath, os.Stdin)
 	if err != nil {
 		fmt.Fprintln(a.Err, "input error:", err)
 		return 1
 	}
 	defer closeFn()
-	results, err := svc.ImportProductsCSV(ctx, r, *dryRun)
+	var results []ninja.CSVImportResult
+	switch kind {
+	case "products":
+		results, err = svc.ImportProductsCSV(ctx, r, dryRun)
+	case "clients":
+		results, err = svc.ImportClientsCSV(ctx, r, dryRun)
+	case "quotes", "invoices", "payments":
+		fmt.Fprintf(a.Err, "ninja import %s is not supported; exports only for this target\n", kind)
+		return 2
+	default:
+		fmt.Fprintln(a.Err, "unknown import target:", kind)
+		return 2
+	}
 	if err != nil {
 		fmt.Fprintln(a.Err, "import error:", err)
 		return 1
@@ -250,70 +296,91 @@ func (a App) runNinjaProductsImport(ctx context.Context, svc *ninja.Service, arg
 	return csvImportExitCode(results)
 }
 
-func (a App) runNinjaClientsExport(ctx context.Context, svc *ninja.Service, args []string) int {
-	fs := flag.NewFlagSet("ninja-clients-export", flag.ContinueOnError)
-	fs.SetOutput(a.Err)
-	outPath := fs.String("out", "-", "output CSV path; use - for stdout")
-	if err := fs.Parse(args); err != nil {
-		return 2
+func parseExportArgs(args []string) (string, bool, error) {
+	force := false
+	var paths []string
+	for _, arg := range args {
+		switch arg {
+		case "--force", "-force":
+			force = true
+		default:
+			if strings.HasPrefix(arg, "--force=") {
+				v := strings.TrimPrefix(arg, "--force=")
+				force = v == "true" || v == "1" || strings.EqualFold(v, "yes")
+				continue
+			}
+			paths = append(paths, arg)
+		}
 	}
-	w, closeFn, err := writerFor(*outPath, a.Out)
-	if err != nil {
-		fmt.Fprintln(a.Err, "output error:", err)
-		return 1
+	if len(paths) != 1 {
+		return "", false, fmt.Errorf("expected exactly one export path, got %d", len(paths))
 	}
-	defer closeFn()
-	if err := svc.ExportClientsCSV(ctx, w); err != nil {
-		fmt.Fprintln(a.Err, "export error:", err)
-		return 1
-	}
-	return 0
+	return paths[0], force, nil
 }
 
-func (a App) runNinjaClientsImport(ctx context.Context, svc *ninja.Service, args []string) int {
-	fs := flag.NewFlagSet("ninja-clients-import", flag.ContinueOnError)
-	fs.SetOutput(a.Err)
-	dryRun := fs.Bool("dry-run", true, "preview changes without updating Invoice Ninja")
-	if err := fs.Parse(args); err != nil {
-		return 2
+func parseImportArgs(args []string) (string, bool, error) {
+	dryRun := true
+	var paths []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--dry-run" || arg == "-dry-run":
+			dryRun = true
+		case arg == "--dry-run=false" || arg == "-dry-run=false":
+			dryRun = false
+		case arg == "--dry-run=true" || arg == "-dry-run=true":
+			dryRun = true
+		case strings.HasPrefix(arg, "--dry-run="):
+			v := strings.TrimPrefix(arg, "--dry-run=")
+			dryRun = !(v == "false" || v == "0" || strings.EqualFold(v, "no"))
+		case arg == "--apply":
+			dryRun = false
+		default:
+			paths = append(paths, arg)
+		}
 	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(a.Err, "usage: bunnings-ninja ninja-clients-import [--dry-run=false] <clients.csv|->")
-		return 2
+	if len(paths) != 1 {
+		return "", true, fmt.Errorf("expected exactly one import path, got %d", len(paths))
 	}
-	r, closeFn, err := readerFor(fs.Arg(0), os.Stdin)
-	if err != nil {
-		fmt.Fprintln(a.Err, "input error:", err)
-		return 1
-	}
-	defer closeFn()
-	results, err := svc.ImportClientsCSV(ctx, r, *dryRun)
-	if err != nil {
-		fmt.Fprintln(a.Err, "import error:", err)
-		return 1
-	}
-	printCSVImportResults(a.Out, results)
-	return csvImportExitCode(results)
+	return paths[0], dryRun, nil
 }
 
 func readerFor(path string, stdin io.Reader) (io.Reader, func(), error) {
 	if path == "-" {
 		return stdin, func() {}, nil
 	}
+	if strings.TrimSpace(path) == "" {
+		return nil, func() {}, fmt.Errorf("import path is required")
+	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, func() {}, err
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, func() {}, fmt.Errorf("import file does not exist: %s", path)
+		}
+		return nil, func() {}, fmt.Errorf("open import file %s: %w", path, err)
 	}
 	return f, func() { _ = f.Close() }, nil
 }
 
-func writerFor(path string, stdout io.Writer) (io.Writer, func(), error) {
+func writerFor(path string, stdout io.Writer, force bool) (io.Writer, func(), error) {
 	if path == "-" {
 		return stdout, func() {}, nil
 	}
-	f, err := os.Create(path)
+	if strings.TrimSpace(path) == "" {
+		return nil, func() {}, fmt.Errorf("export path is required")
+	}
+	flags := os.O_WRONLY | os.O_CREATE
+	if force {
+		flags |= os.O_TRUNC
+	} else {
+		flags |= os.O_EXCL
+	}
+	f, err := os.OpenFile(path, flags, 0644)
 	if err != nil {
-		return nil, func() {}, err
+		if errors.Is(err, os.ErrExist) {
+			return nil, func() {}, fmt.Errorf("refusing to overwrite existing file %s; use --force", path)
+		}
+		return nil, func() {}, fmt.Errorf("open export file %s: %w", path, err)
 	}
 	return f, func() { _ = f.Close() }, nil
 }
@@ -391,21 +458,24 @@ func exitCode(results []syncer.Result) int {
 func (a App) usage() {
 	fmt.Fprintln(a.Out, `bunnings-ninja syncs Bunnings products into Invoice Ninja.
 
-Version: 0.1
+Version: v0.3
 
 Global options:
   --config <path>       Optional key=value config file. File values override environment variables.
                         If omitted, GOBUNNINGSNINJA_CONFIG is used, then ./gobunningsninja.conf if present.
 
 Commands:
-  sync                         Refresh existing Invoice Ninja products linked to Bunnings INs.
-  add-in <IN>                  Add or refresh one product by Bunnings item number.
-  search <query>               Preview Bunnings search results; optionally import selected results.
-  ninja-products-export        Export Invoice Ninja products as CSV.
-  ninja-products-import <CSV>   Import product CSV changes; dry-run by default.
-  ninja-clients-export         Export Invoice Ninja clients as CSV.
-  ninja-clients-import <CSV>    Import client CSV changes; dry-run by default.
-  version                      Print version.
+  sync                                  Refresh existing Invoice Ninja products linked to Bunnings INs.
+  add-in <IN>                           Add or refresh one product by Bunnings item number.
+  search <query>                        Preview Bunnings search results; optionally import selected results.
+  ninja export products <file|->        Export Invoice Ninja products as CSV.
+  ninja import products <file|->        Import product CSV changes; dry-run by default.
+  ninja export clients <file|->         Export Invoice Ninja clients as CSV.
+  ninja import clients <file|->         Import client CSV changes; dry-run by default.
+  ninja export quotes <file|->          Export Invoice Ninja quotes as CSV.
+  ninja export invoices <file|->        Export Invoice Ninja invoices as CSV.
+  ninja export payments <file|->        Export Invoice Ninja payments as CSV.
+  version                               Print version.
 
 Examples:
   bunnings-ninja --config ./gobunningsninja.conf sync
@@ -413,13 +483,18 @@ Examples:
   bunnings-ninja add-in --dry-run=false 0123456
   bunnings-ninja search "merbau decking" --limit=10
   bunnings-ninja search "merbau decking" --create --select=0123456,0987654 --dry-run=false
-  bunnings-ninja ninja-products-export --out products.csv
-  bunnings-ninja ninja-products-import products.csv
-  bunnings-ninja ninja-products-import --dry-run=false products.csv
-  bunnings-ninja ninja-clients-export --out clients.csv
-  bunnings-ninja ninja-clients-import --dry-run=false clients.csv
+  bunnings-ninja ninja export products products.csv
+  bunnings-ninja ninja export products -
+  bunnings-ninja ninja export products products.csv --force
+  bunnings-ninja ninja import products products.csv
+  bunnings-ninja ninja import products --dry-run=false products.csv
+  bunnings-ninja ninja export clients clients.csv
+  bunnings-ninja ninja import clients --dry-run=false clients.csv
+  bunnings-ninja ninja export quotes quotes.csv
+  bunnings-ninja ninja export invoices invoices.csv
+  bunnings-ninja ninja export payments payments.csv
 
-Required configuration for ninja-* commands:
+Required configuration for ninja commands:
   INVOICE_NINJA_TOKEN
 
 Additional required configuration for Bunnings sync/search commands:

@@ -130,18 +130,27 @@ func (s *Service) ImportProductsCSV(ctx context.Context, r io.Reader, dryRun boo
 }
 
 func (s *Service) ListClients(ctx context.Context) ([]invoiceninja.ClientEntity, error) {
-	var all []invoiceninja.ClientEntity
-	for page := 1; ; page++ {
-		res, err := s.client.Clients.List(ctx, invoiceninja.ClientQuery{ListOptions: invoiceninja.ListOptions{Page: page, PerPage: 100, Include: []string{"contacts"}}})
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, res.Data...)
-		if res.Meta.LastPage == 0 || page >= res.Meta.LastPage || len(res.Data) == 0 {
-			break
-		}
-	}
-	return all, nil
+	return s.client.Clients.ListAll(ctx, invoiceninja.ClientQuery{
+		ListOptions: invoiceninja.ListOptions{PerPage: 100, Include: []string{"contacts"}, Status: "active"},
+	})
+}
+
+func (s *Service) ListQuotes(ctx context.Context) ([]invoiceninja.Quote, error) {
+	return s.client.Quotes.ListAll(ctx, invoiceninja.QuoteQuery{
+		ListOptions: invoiceninja.ListOptions{PerPage: 100, Include: []string{"client"}, Status: "active"},
+	})
+}
+
+func (s *Service) ListInvoices(ctx context.Context) ([]invoiceninja.Invoice, error) {
+	return s.client.Invoices.ListAll(ctx, invoiceninja.InvoiceQuery{
+		ListOptions: invoiceninja.ListOptions{PerPage: 100, Include: []string{"client"}, Status: "active"},
+	})
+}
+
+func (s *Service) ListPayments(ctx context.Context) ([]invoiceninja.Payment, error) {
+	return s.client.Payments.ListAll(ctx, invoiceninja.PaymentQuery{
+		ListOptions: invoiceninja.ListOptions{PerPage: 100, Include: []string{"client", "invoices"}, Status: "active"},
+	})
 }
 
 func (s *Service) ExportClientsCSV(ctx context.Context, w io.Writer) error {
@@ -270,6 +279,131 @@ func (s *Service) ImportClientsCSV(ctx context.Context, r io.Reader, dryRun bool
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+var salesDocumentCSVHeader = []string{"ID", "Number", "Client ID", "Client Name", "Status", "Date", "Due Date", "Subtotal", "Discount", "Tax", "Total", "Balance", "Paid To Date", "Public Notes", "Private Notes"}
+var quoteCSVHeader = []string{"ID", "Number", "Client ID", "Client Name", "Status", "Date", "Valid Until", "Subtotal", "Discount", "Tax", "Total", "Balance", "Public Notes", "Private Notes"}
+var paymentCSVHeader = []string{"ID", "Client ID", "Client Name", "Invoice ID", "Invoice Number", "Date", "Amount", "Applied", "Refunded", "Transaction Reference", "Payment Type", "Status", "Private Notes"}
+
+func (s *Service) ExportQuotesCSV(ctx context.Context, w io.Writer) error {
+	quotes, err := s.ListQuotes(ctx)
+	if err != nil {
+		return err
+	}
+	cw := csv.NewWriter(w)
+	if err := cw.Write(quoteCSVHeader); err != nil {
+		return err
+	}
+	for _, q := range quotes {
+		doc := invoiceninja.Invoice(q)
+		row := []string{
+			doc.ID,
+			doc.Number,
+			doc.ClientID,
+			clientName(doc.Client),
+			doc.StatusID,
+			doc.Date,
+			doc.DueDate,
+			formatFloat(subtotal(doc)),
+			formatFloat(doc.Discount),
+			formatFloat(doc.TotalTaxes),
+			formatFloat(doc.Amount),
+			formatFloat(doc.Balance),
+			doc.PublicNotes,
+			doc.PrivateNotes,
+		}
+		if err := cw.Write(row); err != nil {
+			return err
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+func (s *Service) ExportInvoicesCSV(ctx context.Context, w io.Writer) error {
+	invoices, err := s.ListInvoices(ctx)
+	if err != nil {
+		return err
+	}
+	cw := csv.NewWriter(w)
+	if err := cw.Write(salesDocumentCSVHeader); err != nil {
+		return err
+	}
+	for _, inv := range invoices {
+		row := []string{
+			inv.ID,
+			inv.Number,
+			inv.ClientID,
+			clientName(inv.Client),
+			inv.StatusID,
+			inv.Date,
+			inv.DueDate,
+			formatFloat(subtotal(inv)),
+			formatFloat(inv.Discount),
+			formatFloat(inv.TotalTaxes),
+			formatFloat(inv.Amount),
+			formatFloat(inv.Balance),
+			formatFloat(inv.PaidToDate),
+			inv.PublicNotes,
+			inv.PrivateNotes,
+		}
+		if err := cw.Write(row); err != nil {
+			return err
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+func (s *Service) ExportPaymentsCSV(ctx context.Context, w io.Writer) error {
+	payments, err := s.ListPayments(ctx)
+	if err != nil {
+		return err
+	}
+	cw := csv.NewWriter(w)
+	if err := cw.Write(paymentCSVHeader); err != nil {
+		return err
+	}
+	for _, p := range payments {
+		invoiceNumber := ""
+		if len(p.Invoices) > 0 {
+			invoiceNumber = p.Invoices[0].Number
+		}
+		row := []string{
+			p.ID,
+			p.ClientID,
+			clientName(p.Client),
+			p.InvoiceID,
+			invoiceNumber,
+			p.Date,
+			formatFloat(p.Amount),
+			formatFloat(p.Applied),
+			formatFloat(p.Refunded),
+			p.TransactionReference,
+			p.PaymentTypeID,
+			"",
+			p.PrivateNotes,
+		}
+		if err := cw.Write(row); err != nil {
+			return err
+		}
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+func clientName(c *invoiceninja.ClientEntity) string {
+	if c == nil {
+		return ""
+	}
+	if strings.TrimSpace(c.DisplayName) != "" {
+		return c.DisplayName
+	}
+	return c.Name
+}
+
+func subtotal(doc invoiceninja.Invoice) float64 {
+	return doc.Amount - doc.TotalTaxes
 }
 
 func clientHeader(n int) []string {

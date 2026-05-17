@@ -16,7 +16,7 @@ type Service struct {
 }
 
 func New(cfg config.Config) (*Service, error) {
-	opts := []invoiceninja.Option{invoiceninja.WithUserAgent("GoBunningsNinja/0.1")}
+	opts := []invoiceninja.Option{invoiceninja.WithUserAgent("GoBunningsNinja/v0.3")}
 	if cfg.InvoiceNinjaURL != "" {
 		opts = append(opts, invoiceninja.WithBaseURL(cfg.InvoiceNinjaURL))
 	}
@@ -28,18 +28,9 @@ func New(cfg config.Config) (*Service, error) {
 }
 
 func (s *Service) ListProducts(ctx context.Context) ([]invoiceninja.Product, error) {
-	var all []invoiceninja.Product
-	for page := 1; ; page++ {
-		res, err := s.client.Products.List(ctx, invoiceninja.ProductQuery{ListOptions: invoiceninja.ListOptions{Page: page, PerPage: 100}})
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, res.Data...)
-		if res.Meta.LastPage == 0 || page >= res.Meta.LastPage || len(res.Data) == 0 {
-			break
-		}
-	}
-	return all, nil
+	return s.client.Products.ListAll(ctx, invoiceninja.ProductQuery{
+		ListOptions: invoiceninja.ListOptions{PerPage: 100, Status: "active"},
+	})
 }
 
 func (s *Service) FindByBunningsIN(ctx context.Context, itemNumber string) (*invoiceninja.Product, error) {

@@ -1,138 +1,180 @@
-# Weird stuff and fix prompts
+# Weird stuff and upstream prompts
 
-These are the things noticed while integrating the uploaded packages and building version `0.1` of `GoBunningsNinja`.
+These are the remaining upstream package issues or questions noticed while building `GoBunningsNinja v0.3`.
 
-## Needs fixing before reliable image syncing
+Future zip files should keep this file updated and the relevant package prompts should be merged into one copy/paste prompt per package.
 
-### GoBunnings: `Item.Raw` is never populated
+## GoBunnings prompt
 
-`Item` has:
-
-```go
-Raw map[string]any `json:"-"`
-```
-
-Because of the `json:"-"` tag, `encoding/json` ignores it. That means downstream clients cannot inspect unmodelled fields such as image URLs, brand names, web URLs, or any useful surprise parcels the Bunnings API sends back.
-
-Prompt to issue in the **GoBunnings** chat:
+Copy/paste this into the GoBunnings package chat:
 
 ```text
-Please update GoBunnings so product/item responses preserve the original raw JSON.
+Please make the following GoBunnings package improvements needed by the GoBunningsNinja sync client.
 
-Currently Item.Raw is tagged json:"-", so it is never populated. I need Raw to contain the decoded product object so downstream clients can safely inspect fields that are not yet modelled, especially image URLs.
+Context:
+GoBunningsNinja needs to sync Bunnings product data into Invoice Ninja. It needs reliable access to product identifiers, pricing, descriptions, URLs, image URLs, and any unmodelled JSON fields.
 
-Please implement this cleanly using a custom UnmarshalJSON on Item, or an equivalent approach, so:
-1. Normal typed fields such as IN, Name, Description, Price, URL, etc. still unmarshal as before.
-2. Raw is populated with the original decoded JSON object.
-3. Existing tests still pass.
-4. Add tests proving Raw is populated.
-5. Do not break the public API.
-```
-
-### GoBunnings: add typed image URL support
-
-The client now has an `Image URL` CSV column and sync wiring, but reliable Bunnings image data still depends on `GoBunnings` exposing image fields properly.
-
-Prompt to issue in the **GoBunnings** chat:
-
-```text
-Please add typed image URL support to GoBunnings product/item models.
-
-The sync client needs to refresh InvoiceNinja product image URLs from Bunnings product data. Please inspect actual Bunnings product JSON and expose the best available image URL field as Item.ImageURL or equivalent.
+Please implement these changes cleanly without breaking the public API.
 
 Requirements:
-1. Preserve backwards compatibility.
-2. Add ImageURL to the item/product model.
-3. Populate it from the correct Bunnings JSON field.
-4. Keep Raw populated as a fallback.
-5. Add tests for products with and without images.
-```
 
-## GoInvoiceNinja gaps affecting this client
+1. Preserve raw product/item JSON on Item
 
-### Product max quantity is not modelled
+Currently Item.Raw is tagged json:"-", so it is never populated.
 
-The new product CSV command includes the requested `Max Quantity` column, but the uploaded `GoInvoiceNinja` product model and create/update payloads do not expose a max quantity field. Version `0.1` therefore exports it blank and ignores it on import.
+Please implement a custom UnmarshalJSON on Item, or an equivalent approach, so:
+- Normal typed fields such as IN, Name, Description, Price, URL, etc. still unmarshal as before.
+- Raw is populated with the original decoded JSON object.
+- Raw contains fields that are not yet modelled.
+- Existing tests still pass.
+- Add tests proving Raw is populated.
 
-Prompt to issue in the **GoInvoiceNinja** chat:
+2. Add typed image URL support to product/item models
 
-```text
-Please investigate whether Invoice Ninja v5 products support a max quantity or stock/quantity limit field through the API.
+Please inspect actual Bunnings product JSON and expose the best available image URL field as Item.ImageURL or equivalent.
 
-If supported, update GoInvoiceNinja so Product, CreateProductRequest, and UpdateProductRequest expose the correct field with the correct JSON tag. Add tests proving list/get/create/update round-trip the value. If unsupported by Invoice Ninja, document that explicitly in the README so downstream CSV tooling can leave the Max Quantity column read-only/ignored.
-```
+Requirements:
+- Preserve backwards compatibility.
+- Add ImageURL to the item/product model.
+- Populate it from the correct Bunnings JSON field.
+- Keep Raw populated as a fallback.
+- Add tests for products with and without images.
 
-### Product image URL has no first-class field
+3. Populate ProblemDetails.Extra
 
-Invoice Ninja products may not have a native image URL field. `GoBunningsNinja` currently maps image URL to the configured product custom field, default `custom_value2`.
+Please add custom UnmarshalJSON support for ProblemDetails so unknown/problem-extension fields are captured into Extra.
 
-Prompt to issue in the **GoInvoiceNinja** chat:
+Requirements:
+- Keep known fields Type, Title, Status, Detail, Instance, and Errors as typed fields.
+- Capture RFC7807-style extension fields into Extra.
+- Add tests for extension fields.
 
-```text
-Please investigate whether Invoice Ninja v5 products support product images or related documents through the API.
+4. Remove artificial import keepalive lines
 
-If supported, add typed methods to GoInvoiceNinja for uploading/attaching product images or setting image URLs. If unsupported, document the recommended custom field approach in the README. The Bunnings sync client currently stores image URLs in a configurable product custom field, default custom_value2.
-```
+Please remove artificial import keepalive lines such as:
 
-### Client CSV address import is lossy if used heavily
-
-The requested client CSV shape has one `Address` column. Invoice Ninja stores billing address as structured fields: `address1`, `address2`, `city`, `state`, `postal_code`, and `country_id`. Version `0.1` exports a combined address and, if changed on import, writes it to `address1` while preserving the other structured fields where possible.
-
-This is safe enough for light edits, but not ideal for serious address hygiene. A single address column is a tidy-looking box containing several annoyed cats.
-
-Potential prompt for this chat, if you want a future client change:
-
-```text
-Please revise GoBunningsNinja client CSV import/export to use structured billing address columns instead of one combined Address column.
-
-Use columns: ID, Name, Address 1, Address 2, City, State, Postal Code, Country ID, followed by the repeated contact columns. Keep backwards compatibility by still accepting the older single Address column where possible.
-```
-
-## Existing package cleanups noticed earlier
-
-### GoBunnings: `ProblemDetails.Extra` is never populated
-
-Prompt:
-
-```text
-Please add custom UnmarshalJSON support for ProblemDetails so unknown/problem-extension fields are captured into Extra. Keep the known fields Type, Title, Status, Detail, Instance, and Errors as typed fields. Add tests for RFC7807-style extension fields.
-```
-
-### Artificial import keepalive lines
-
-There are harmless but odd lines such as:
-
-```go
 var _ = url.Values{}
 var _ = fmt.Sprintf
-```
 
-Prompt:
+Clean up the affected imports afterwards.
 
-```text
-Please remove artificial import keepalive lines such as var _ = url.Values{} and clean up the affected imports. Run gofmt and go test ./... afterwards.
-```
+5. Verify Barcode.AdditionalDescription JSON casing
 
-### Possible barcode JSON casing issue
+Barcode.AdditionalDescription currently uses:
 
-`Barcode.AdditionalDescription` uses:
-
-```go
 json:"AdditionalDescription,omitempty"
+
+Please verify this against actual Bunnings API responses.
+
+If the API uses additionalDescription:
+- Change the tag to json:"additionalDescription,omitempty".
+- Add a regression test proving it decodes correctly.
+
+If the current casing is correct:
+- Add a small test or comment explaining why.
+
+6. Validation
+
+Please run:
+
+go test ./...
+go vet ./...
+
+If go vet reports existing unrelated issues, document them rather than hiding them under the carpet where they can breed.
 ```
 
-Most other fields use lower camel case. If the API returns `additionalDescription`, this field will not decode.
+## GoInvoiceNinja prompt
 
-Prompt:
+Copy/paste this into the GoInvoiceNinja package chat:
 
 ```text
-Please verify the JSON casing for Barcode.AdditionalDescription against actual Bunnings API responses. If the API uses additionalDescription, change the tag from AdditionalDescription to additionalDescription and add a regression test.
+Please make the following GoInvoiceNinja package improvements needed by the GoBunningsNinja sync client.
+
+Context:
+GoBunningsNinja exports/imports Invoice Ninja products and clients as CSV, exports quotes, invoices, and payments, syncs Bunnings product data into Invoice Ninja products, and safely maps external Bunnings item numbers / INs to Invoice Ninja records.
+
+GoBunningsNinja now expects the v0.2 API additions already made, especially:
+- Products.ListAll(ctx, ProductQuery{...})
+- Clients.ListAll(ctx, ClientQuery{...})
+- Quotes.ListAll(ctx, QuoteQuery{...})
+- Invoices.ListAll(ctx, InvoiceQuery{...})
+- Payments.ListAll(ctx, PaymentQuery{...})
+- Service.ListAll(ctx, query)
+- ListOptions.Status string
+
+Please keep those APIs stable.
+
+Additional requirements:
+
+1. Investigate product max quantity support
+
+GoBunningsNinja product CSV includes:
+
+ID, Product, Description, Price, Default Quantity, Max Quantity, Image URL
+
+The package does not currently appear to expose a max quantity field for products.
+
+Please investigate whether Invoice Ninja v5 products support a max quantity, stock limit, inventory quantity limit, or equivalent field through the API.
+
+If supported:
+- Update Product, CreateProductRequest, and UpdateProductRequest to expose the correct field with the correct JSON tag.
+- Add tests proving list/get/create/update round-trip the value.
+
+If unsupported:
+- Document that explicitly in the README so downstream CSV tooling can leave the Max Quantity column read-only or ignored.
+
+2. Investigate product image support
+
+GoBunningsNinja needs to sync Bunnings product image URLs into Invoice Ninja.
+
+Please investigate whether Invoice Ninja v5 products support product images, related documents, file attachments, or image URLs through the API.
+
+If supported:
+- Add typed methods or fields to GoInvoiceNinja for uploading/attaching product images or setting image URLs.
+- Add tests.
+
+If unsupported:
+- Document the recommended custom field approach in the README.
+- The Bunnings sync client currently stores image URLs in a configurable product custom field, default custom_value2.
+
+3. Confirm export-friendly include behaviour
+
+GoBunningsNinja v0.3 uses ListAll with includes for richer exports:
+- Clients.ListAll with include contacts
+- Quotes.ListAll with include client
+- Invoices.ListAll with include client
+- Payments.ListAll with include client,invoices
+
+Please verify those include values are correct for Invoice Ninja v5 and are passed through reliably by ListAll.
+
+4. Improve API error messages
+
+Please improve APIError.Error() so it includes:
+- HTTP status code
+- main message
+- validation error details when present
+
+Keep it concise but make 4xx validation responses actionable.
+
+Add tests for:
+- message-only response
+- errors-only response
+- message plus errors response
+- empty-body response
+
+5. Validation
+
+Please run:
+
+go test ./...
+go vet ./...
+
+If go vet reports existing unrelated issues, document them clearly.
 ```
 
-### GoInvoiceNinja: API errors could be more useful
+## GoBunningsNinja internal notes
 
-Prompt:
-
-```text
-Please improve GoInvoiceNinja APIError.Error() so it includes the HTTP status code and validation error details when present. Keep it concise, but make 4xx validation responses actionable. Add tests for message-only, errors-only, and empty-body responses.
-```
+- Product `Max Quantity` remains exported blank and ignored on import until `GoInvoiceNinja` confirms a real API field.
+- Product `Image URL` currently maps to the configured Invoice Ninja custom field, default `custom_value2`.
+- Client `Address` remains a single combined billing address column. If heavier address editing becomes important, this should become structured columns: Address 1, Address 2, City, State, Postal Code, Country ID.
+- Quote, invoice, and payment CSV support is export-only. This is intentional for now; importing financial documents in bulk is a surprisingly efficient way to summon accounting goblins.
