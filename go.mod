@@ -7,5 +7,5 @@ require (
 	github.com/MickMake/GoInvoiceNinja v0.2.0
 )
 
-replace github.com/MickMake/GoBunnings => /Volumes/home/mick/Documents/GoLang/Tradie/GoBunnings
-replace github.com/MickMake/GoInvoiceNinja => /Volumes/home/mick/Documents/GoLang/Tradie/GoInvoiceNinja
+replace github.com/MickMake/GoBunnings => ../GoBunnings
+replace github.com/MickMake/GoInvoiceNinja => ../GoInvoiceNinja
