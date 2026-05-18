@@ -64,7 +64,7 @@ Keep here:
 - configuration loading
 - sync/import/export workflows
 - Bunnings-to-Invoice Ninja mapping
-- preview-by-default behaviour and `--apply` safety guards for write operations
+- preview-by-default behaviour and `--commit` safety guards for persistent changes
 
 Avoid putting here:
 
