@@ -64,7 +64,7 @@ Keep here:
 - configuration loading
 - sync/import/export workflows
 - Bunnings-to-Invoice Ninja mapping
-- dry-run and safety guards
+- preview-by-default behaviour and `--apply` safety guards for write operations
 
 Avoid putting here:
 
