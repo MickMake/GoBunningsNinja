@@ -158,11 +158,15 @@ func (a App) runSyncNamespace(ctx context.Context, svc syncer.Service, args []st
 func (a App) runSync(ctx context.Context, svc syncer.Service, args []string) int {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(a.Err)
-	dryRun := fs.Bool("dry-run", true, "preview changes without updating Invoice Ninja")
+	apply := fs.Bool("apply", false, "apply changes to Invoice Ninja")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	svc.DryRun = *dryRun
+	if fs.NArg() != 0 {
+		fmt.Fprintln(a.Err, "usage: bunnings-ninja sync refresh [--apply]")
+		return 2
+	}
+	svc.DryRun = !*apply
 	results, err := svc.SyncExisting(ctx)
 	if err != nil {
 		fmt.Fprintln(a.Err, "sync error:", err)
@@ -175,15 +179,15 @@ func (a App) runSync(ctx context.Context, svc syncer.Service, args []string) int
 func (a App) runAddIN(ctx context.Context, svc syncer.Service, args []string) int {
 	fs := flag.NewFlagSet("add-in", flag.ContinueOnError)
 	fs.SetOutput(a.Err)
-	dryRun := fs.Bool("dry-run", true, "preview changes without updating Invoice Ninja")
+	apply := fs.Bool("apply", false, "apply changes to Invoice Ninja")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(a.Err, "usage: bunnings-ninja add-in [--dry-run=false] <bunnings-in>")
+		fmt.Fprintln(a.Err, "usage: bunnings-ninja sync import [--apply] <bunnings-in>")
 		return 2
 	}
-	svc.DryRun = *dryRun
+	svc.DryRun = !*apply
 	res := svc.AddByIN(ctx, fs.Arg(0))
 	printResults(a.Out, []syncer.Result{res})
 	return exitCode([]syncer.Result{res})
@@ -197,12 +201,12 @@ func (a App) runSearch(ctx context.Context, svc syncer.Service, args []string) i
 	selectCSV := fs.String("select", "", "comma-separated Bunnings item numbers to import from the search results")
 	all := fs.Bool("all", false, "import all returned results up to --limit; requires --yes")
 	yes := fs.Bool("yes", false, "confirm a guarded bulk import")
-	dryRun := fs.Bool("dry-run", true, "preview changes without updating Invoice Ninja")
+	apply := fs.Bool("apply", false, "apply selected product changes to Invoice Ninja")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() < 1 {
-		fmt.Fprintln(a.Err, "usage: bunnings-ninja search [--limit=10] [--create --select=IN1,IN2 --dry-run=false] <query>")
+		fmt.Fprintln(a.Err, "usage: bunnings-ninja sync search [--limit=10] [--create --select=IN1,IN2 --apply] <query>")
 		return 2
 	}
 	query := strings.Join(fs.Args(), " ")
@@ -224,7 +228,7 @@ func (a App) runSearch(ctx context.Context, svc syncer.Service, args []string) i
 		fmt.Fprintln(a.Err, "refusing --all without --yes; the goblin at the gate is doing its job")
 		return 2
 	}
-	svc.DryRun = *dryRun
+	svc.DryRun = !*apply
 	results := svc.AddProducts(ctx, selected)
 	printResults(a.Out, results)
 	return exitCode(results)
@@ -425,8 +429,6 @@ func parseImportArgs(args []string) (string, bool, error) {
 		switch {
 		case arg == "--apply":
 			dryRun = false
-		case strings.HasPrefix(arg, "--dry-run") || strings.HasPrefix(arg, "-dry-run"):
-			return "", true, fmt.Errorf("--dry-run has been removed; imports preview by default, use --apply to update Invoice Ninja")
 		case strings.HasPrefix(arg, "-"):
 			return "", true, fmt.Errorf("unknown import flag %q", arg)
 		default:
@@ -542,7 +544,7 @@ func printProducts(w io.Writer, products []bunnings.Product) {
 	for _, p := range products {
 		fmt.Fprintf(w, "%s\t%s\n", p.ItemNumber, p.Title)
 	}
-	fmt.Fprintln(w, "\nPreview only. To import, re-run with --create --select=IN1,IN2 --dry-run=false")
+	fmt.Fprintln(w, "\nPreview only. To import, re-run with --create --select=IN1,IN2 --apply")
 }
 
 func printResults(w io.Writer, results []syncer.Result) {
@@ -579,8 +581,8 @@ Commands:
   bunnings find <query>                 Fuzzy Bunnings discovery (CSV output).
   bunnings get <IN...>                  Exact Bunnings lookup (CSV output).
   bunnings lookup <IN...>               Exact Bunnings lookup (human-readable output).
-  sync refresh                          Refresh existing Invoice Ninja products linked to Bunnings INs.
-  sync import <IN>                      Add or refresh one product by Bunnings item number.
+  sync refresh                          Preview linked product refresh; use --apply to update.
+  sync import <IN>                      Preview one product import; use --apply to update.
   sync search <query>                   Guarded Bunnings search/import workflow for Invoice Ninja.
   ninja export products <file|->        Export Invoice Ninja products as CSV.
   ninja import products <file|->        Preview product CSV changes; use --apply to update.
@@ -595,10 +597,10 @@ Examples:
   bunnings-ninja bunnings find "merbau decking" --limit=10
   bunnings-ninja bunnings get 0123456 0987654
   bunnings-ninja bunnings lookup 0123456
-  bunnings-ninja sync refresh --dry-run=false
-  bunnings-ninja sync import --dry-run=false 0123456
+  bunnings-ninja sync refresh --apply
+  bunnings-ninja sync import --apply 0123456
   bunnings-ninja sync search "merbau decking" --limit=10
-  bunnings-ninja sync search "merbau decking" --create --select=0123456,0987654 --dry-run=false
+  bunnings-ninja sync search "merbau decking" --create --select=0123456,0987654 --apply
   bunnings-ninja ninja export products products.csv
   bunnings-ninja ninja export products -
   bunnings-ninja ninja export products products.csv --force
