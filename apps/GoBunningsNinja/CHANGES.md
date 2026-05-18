@@ -6,6 +6,7 @@
 - Added `bunnings` command namespace with `find`, `get`, and `lookup`.
 - Retired advertised top-level `search`; moved guarded cross-system behavior under `sync search` and introduced `sync refresh` / `sync import`.
 - Kept compatibility for legacy `add-in` command with deprecation notice.
+- Replaced write-command `--dry-run` usage with the safer `--apply` convention: commands preview by default and only update Invoice Ninja when `--apply` is supplied.
 
 
 ## v0.4
@@ -38,7 +39,7 @@
 - Import commands now take `-` for stdin or a filename for file input.
 - Import commands now fail clearly if the requested import file does not exist.
 - Added a reusable `--force` pattern for commands that need explicit overwrite behaviour.
-- Kept product and client imports as dry-run by default.
+- Kept product and client imports as preview-by-default operations.
 - Marked quote, invoice, and payment CSV handling as export-only.
 
 ## v0.1
@@ -49,7 +50,7 @@
   - `sync`
   - `add-in`
   - `search`
-- Added dry-run defaults for write operations.
+- Added preview-by-default behaviour for write operations.
 - Added guarded Bunnings search imports to avoid accidental bulk product creation.
 - Added config file support with file values overriding environment variables.
 - Added initial Invoice Ninja product and client CSV export/import commands.
