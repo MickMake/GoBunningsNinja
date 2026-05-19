@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 
-	gobunnings "github.com/MickMake/GoBunnings"
 )
 
 func main() {

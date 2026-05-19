@@ -43,7 +43,6 @@ Those belong in separate packages or applications using GoBunnings as the transp
 ## Install
 
 ```bash
-go get github.com/MickMake/GoBunnings
 ```
 
 ## Basic usage
@@ -57,7 +56,6 @@ import (
     "log"
     "os"
 
-    gobunnings "github.com/MickMake/GoBunnings"
 )
 
 func main() {
