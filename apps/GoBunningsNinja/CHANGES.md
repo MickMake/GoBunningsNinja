@@ -4,6 +4,7 @@
 
 - Aligned app version metadata/docs to `v0.5` and updated SDK dependency targets to `GoBunnings v0.5.0` and `GoInvoiceNinja v0.5.0`.
 - Added `bunnings` command namespace with `find`, `get`, and `lookup`.
+- Added top-level `commands` extended help, with `extended-help` and `manual` aliases, covering each command with example output.
 - Retired advertised top-level `search`; moved guarded cross-system behavior under `sync search` and introduced `sync refresh` / `sync import`.
 - Kept compatibility for legacy `add-in` command with deprecation notice.
 - Consolidated write/overwrite confirmation onto one `--commit` flag: commands preview or refuse risky writes by default, and only persist changes when `--commit` is supplied.
