@@ -38,6 +38,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 		a.usage()
 		return 0
 	}
+	if args[0] == "commands" || args[0] == "extended-help" || args[0] == "manual" {
+		a.extendedUsage()
+		return 0
+	}
 	if args[0] == "version" || args[0] == "--version" {
 		fmt.Fprintln(a.Out, version)
 		return 0
@@ -49,6 +53,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	if len(args) == 0 {
 		a.usage()
+		return 0
+	}
+	if args[0] == "commands" || args[0] == "extended-help" || args[0] == "manual" {
+		a.extendedUsage()
 		return 0
 	}
 	cfg, err := config.FromEnvAndFile(globals.ConfigPath)
@@ -588,9 +596,11 @@ Commands:
   ninja export quotes <file|->          Export Invoice Ninja quotes as CSV; use --commit to overwrite.
   ninja export invoices <file|->        Export Invoice Ninja invoices as CSV; use --commit to overwrite.
   ninja export payments <file|->        Export Invoice Ninja payments as CSV; use --commit to overwrite.
+  commands                              Show extended command help with output examples.
   version                               Print version.
 
 Examples:
+  bunnings-ninja commands
   bunnings-ninja bunnings find "merbau decking" --limit=10
   bunnings-ninja bunnings get 0123456 0987654
   bunnings-ninja bunnings lookup 0123456
